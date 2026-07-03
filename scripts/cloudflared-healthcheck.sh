@@ -17,7 +17,23 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 status="ok"
 notes=()
 
-if ! command -v cloudflared >/dev/null 2>&1; then
+find_cloudflared() {
+  if command -v cloudflared >/dev/null 2>&1; then
+    command -v cloudflared
+    return 0
+  fi
+  for p in /opt/homebrew/bin/cloudflared /usr/local/bin/cloudflared /usr/bin/cloudflared; do
+    if [ -x "$p" ]; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+CLOUDFLARED_BIN="$(find_cloudflared || true)"
+
+if [ -z "$CLOUDFLARED_BIN" ]; then
   status="fail"
   notes+=("cloudflared_missing")
 else
@@ -30,7 +46,7 @@ else
   fi
 
   # API call requires valid cert/account context; capture auth issues separately.
-  if cloudflared tunnel info "$TUNNEL_ID" >/tmp/cloudflared-tunnel-info.$$ 2>/tmp/cloudflared-tunnel-info.err.$$; then
+  if "$CLOUDFLARED_BIN" tunnel info "$TUNNEL_ID" >/tmp/cloudflared-tunnel-info.$$ 2>/tmp/cloudflared-tunnel-info.err.$$; then
     if grep -qi "does not have any active connection" /tmp/cloudflared-tunnel-info.$$; then
       status="fail"
       notes+=("no_active_connection")
