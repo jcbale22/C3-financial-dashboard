@@ -88,6 +88,9 @@ def budget_vs_actuals(
         fqn = _build_numbered_fqn(acct_id, acct_map)
         account_name = fqn or b.get("account_name") or a.get("account_name", "")
 
+        acct = acct_map.get(str(acct_id), {})
+        account_type = acct.get("AccountType", "")
+
         rows.append({
             "account_id": acct_id,
             "account_name": account_name,
@@ -95,6 +98,7 @@ def budget_vs_actuals(
             "actual": actual_amt,
             "variance": variance,
             "percent_of_budget": pct,
+            "account_type": account_type,
         })
 
     rows.sort(key=lambda r: r["account_name"])
@@ -144,3 +148,71 @@ def _extract_actuals(rows: list, result: dict | None = None) -> dict:
         if child_rows:
             _extract_actuals(child_rows, result)
     return result
+
+
+def _extract_bs_balances(rows: list, result: dict | None = None) -> dict:
+    """Recursively extract account balances from a Balance Sheet response."""
+    if result is None:
+        result = {}
+    for row in rows:
+        cols = row.get("ColData", [])
+        if cols and cols[0].get("id"):
+            acct_id = cols[0]["id"]
+            try:
+                balance = float(cols[1]["value"]) if len(cols) > 1 else 0.0
+            except (ValueError, KeyError):
+                balance = 0.0
+            result[acct_id] = {"name": cols[0].get("value", ""), "balance": balance}
+        child_rows = row.get("Rows", {}).get("Row", [])
+        if child_rows:
+            _extract_bs_balances(child_rows, result)
+    return result
+
+
+@router.get("/principal-payments")
+def principal_payments(
+    start_date: str = Query(description="YYYY-MM-DD"),
+    end_date: str = Query(description="YYYY-MM-DD"),
+):
+    """
+    Return principal paid on long-term liabilities (e.g. mortgage) during the period.
+    Computed as the reduction in Long Term Liability account balances from start to end.
+    """
+    from datetime import date, timedelta
+    start = date.fromisoformat(start_date)
+    prior_date = (start - timedelta(days=1)).isoformat()
+
+    # Balance sheet as of day before period start and as of period end
+    bs_prior = qbo_get("reports/BalanceSheet", {"start_date": prior_date, "end_date": prior_date, "minorversion": 65})
+    bs_end   = qbo_get("reports/BalanceSheet", {"start_date": end_date,   "end_date": end_date,   "minorversion": 65})
+
+    # Find long-term liability accounts (e.g. mortgage payable, notes payable)
+    acct_resp = qbo_get("query", {"query": "select * from Account WHERE AccountType = 'Long Term Liability' MAXRESULTS 100"})
+    loan_accounts = acct_resp.get("QueryResponse", {}).get("Account", [])
+    loan_ids = {a["Id"] for a in loan_accounts}
+
+    prior_balances = _extract_bs_balances(bs_prior.get("Rows", {}).get("Row", []))
+    end_balances   = _extract_bs_balances(bs_end.get("Rows",  {}).get("Row", []))
+
+    principal_paid = 0.0
+    breakdown = []
+    for acct_id in loan_ids:
+        prior = prior_balances.get(acct_id, {})
+        end   = end_balances.get(acct_id, {})
+        prior_bal = prior.get("balance", 0.0)
+        end_bal   = end.get("balance", 0.0)
+        paid = prior_bal - end_bal  # decrease in liability = principal paid
+        if paid != 0 or prior_bal != 0:
+            breakdown.append({
+                "account_id": acct_id,
+                "account_name": prior.get("name") or end.get("name", ""),
+                "opening_balance": prior_bal,
+                "closing_balance": end_bal,
+                "principal_paid": paid,
+            })
+            principal_paid += max(paid, 0)  # only count positive reductions
+
+    return {
+        "principal_paid": principal_paid,
+        "breakdown": breakdown,
+    }

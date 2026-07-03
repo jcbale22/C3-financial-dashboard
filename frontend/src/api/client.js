@@ -19,4 +19,6 @@ export const api = {
     apiFetch('/api/budget/vs-actuals', { start_date: start, end_date: end, budget_id: budgetId }),
   getReviewItems: (start, end) =>
     apiFetch('/api/review', { start_date: start, end_date: end }),
+  getPrincipalPayments: (start, end) =>
+    apiFetch('/api/budget/principal-payments', { start_date: start, end_date: end }),
 }

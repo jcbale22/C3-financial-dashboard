@@ -99,15 +99,25 @@ export default function App() {
   const { totalRevenue, totalExpenses, netIncome, expenseCategories } = parseProfitLoss(pl)
 
   // Budget variance: expense-spend performance only.
-  // Excludes income/giving rows so revenue performance is represented by Net Income.
-  const EXPENSE_TYPES = ['Expense', 'Cost of Goods Sold', 'Other Expense']
+  // Strategy: exclude rows that are income/giving by account_type OR name.
+  // We do NOT filter by EXPENSE_TYPES because QBO parent/rollup accounts often
+  // return an empty account_type even when they are expense accounts, which
+  // causes the variance to collapse to $0. Instead we invert: keep anything
+  // that has a budget AND is not identifiable as income.
+  const INCOME_TYPES = ['Income', 'Other Income']
   const isIncomeLike = (row) => {
     const t = String(row?.account_type ?? '').toLowerCase()
     const n = String(row?.account_name ?? '').toLowerCase()
-    return t.includes('income') || n.includes('income') || n.includes('giving')
+    // Exclude by explicit income account type
+    if (INCOME_TYPES.some((it) => it.toLowerCase() === t)) return true
+    // Exclude by account number range 40000-49999 (giving/income range)
+    const firstWord = (n.split(':')[0] ?? '').trim().split(/\s+/)[0]
+    if (/^\d{5}$/.test(firstWord) && parseInt(firstWord, 10) >= 40000 && parseInt(firstWord, 10) <= 49999) return true
+    // Exclude by explicit name keywords as last resort
+    if (n === 'income' || n.startsWith('income ') || n.includes(' income') || n.includes('giving')) return true
+    return false
   }
   const expenseRows = bva?.rows?.filter((r) => (
-    EXPENSE_TYPES.includes(r.account_type) &&
     (r.budget ?? 0) > 0 &&
     !isIncomeLike(r)
   )) ?? []
@@ -219,7 +229,7 @@ export default function App() {
         <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
 
           <Section title="Financial Overview" icon={LayoutDashboard}>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 xl:grid-cols-5">
               <KPICard label="Total Revenue"      value={totalRevenue}    subtext={periodLabel} positive loading={plLoading} icon={TrendingUp}
                 tooltip="Total income for the period — tithes, offerings, and all other sources." />
               <KPICard label="Total Expenses"     value={totalExpenses}   subtext={periodLabel}           loading={plLoading} icon={TrendingDown}
@@ -228,8 +238,12 @@ export default function App() {
                 tooltip="Revenue minus expenses. Green = surplus (more in than out). Red = deficit (spending exceeded income)." />
               <KPICard label="Budget Variance"    value={budgetVariance}  subtext={budgetVariance > 0 ? 'Over budget' : budgetVariance < 0 ? 'Under budget' : '—'} positive={budgetVariance <= 0} negative={budgetVariance > 0} loading={bvaLoading} icon={Target}
                 tooltip="Expense-only: actual vs budgeted spending. Green = under budget. Red = over budget. Giving/income is excluded." />
-              <KPICard label="Principal Payments" value={principalPaid}   subtext={periodLabel}           loading={principalLoading} icon={Landmark}
-                tooltip="Mortgage principal paid during the period. Reduces long-term debt but is not recorded as a P&L expense — shown here for a complete cash-out picture." />
+              {/* Only show principal payments if non-zero — it is a balance-sheet item
+                  not in the P&L, so only relevant when mortgage was actually paid */}
+              {(principalLoading || principalPaid > 0) && (
+                <KPICard label="Principal Payments" value={principalPaid}   subtext={periodLabel}           loading={principalLoading} icon={Landmark}
+                  tooltip="Mortgage/loan principal paid during the period. This is a balance-sheet cash outflow not captured in the P&L, shown here for a complete picture." />
+              )}
             </div>
           </Section>
 
