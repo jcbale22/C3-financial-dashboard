@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+
+# Repo pre-push gate: run safe validation checks before allowing push.
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+bash scripts/prepush-validate.sh

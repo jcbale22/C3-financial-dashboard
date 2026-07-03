@@ -31,7 +31,7 @@ function isIncomeAccount(name) {
 }
 
 function displayCategory(cat) {
-  if (/^income$/i.test(cat)) return 'Income'
+  if (/^income$/i.test(cat)) return 'Giving'
   if (/^unbudgeted/i.test(cat)) return 'Unbudgeted Expenses'
   return cat
 }

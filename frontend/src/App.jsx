@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  TrendingUp, TrendingDown, Wallet, Target,
+  TrendingUp, TrendingDown, Wallet, Target, Landmark,
   LayoutDashboard, BarChart3, BookOpen,
   Sun, Moon, FileBarChart, Settings, CalendarRange, RotateCcw, RefreshCw, ClipboardCheck,
 } from 'lucide-react'
@@ -91,10 +91,31 @@ export default function App() {
     enabled: !!activeBudget,
   })
 
+  const { data: principal, isLoading: principalLoading } = useQuery({
+    queryKey: ['principal', startDate, endDate],
+    queryFn: () => api.getPrincipalPayments(startDate, endDate),
+  })
+
   const { totalRevenue, totalExpenses, netIncome, expenseCategories } = parseProfitLoss(pl)
-  const totalBudget    = bva?.rows?.reduce((s, r) => s + (r.budget ?? 0), 0) ?? 0
-  const totalActual    = bva?.rows?.reduce((s, r) => s + (r.actual ?? 0), 0) ?? 0
+
+  // Budget variance: expense-spend performance only.
+  // Excludes income/giving rows so revenue performance is represented by Net Income.
+  const EXPENSE_TYPES = ['Expense', 'Cost of Goods Sold', 'Other Expense']
+  const isIncomeLike = (row) => {
+    const t = String(row?.account_type ?? '').toLowerCase()
+    const n = String(row?.account_name ?? '').toLowerCase()
+    return t.includes('income') || n.includes('income') || n.includes('giving')
+  }
+  const expenseRows = bva?.rows?.filter((r) => (
+    EXPENSE_TYPES.includes(r.account_type) &&
+    (r.budget ?? 0) > 0 &&
+    !isIncomeLike(r)
+  )) ?? []
+  const totalBudget    = expenseRows.reduce((s, r) => s + (r.budget ?? 0), 0)
+  const totalActual    = expenseRows.reduce((s, r) => s + (r.actual ?? 0), 0)
   const budgetVariance = totalActual - totalBudget
+
+  const principalPaid = principal?.principal_paid ?? 0
 
   return (
     <div className="min-h-screen bg-skin-bg text-skin-fg">
@@ -198,15 +219,17 @@ export default function App() {
         <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
 
           <Section title="Financial Overview" icon={LayoutDashboard}>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <KPICard label="Total Revenue"   value={totalRevenue}   subtext={periodLabel} positive loading={plLoading} icon={TrendingUp}
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+              <KPICard label="Total Revenue"      value={totalRevenue}    subtext={periodLabel} positive loading={plLoading} icon={TrendingUp}
                 tooltip="Total income for the period — tithes, offerings, and all other sources." />
-              <KPICard label="Total Expenses"  value={totalExpenses}  subtext={periodLabel}           loading={plLoading} icon={TrendingDown}
+              <KPICard label="Total Expenses"     value={totalExpenses}   subtext={periodLabel}           loading={plLoading} icon={TrendingDown}
                 tooltip="Total spending across all cost centers for the period." />
-              <KPICard label="Net Income"      value={netIncome}      subtext={netIncome >= 0 ? 'Surplus' : 'Deficit'} positive={netIncome >= 0} negative={netIncome < 0} loading={plLoading} icon={Wallet}
+              <KPICard label="Net Income"         value={netIncome}       subtext={netIncome >= 0 ? 'Surplus' : 'Deficit'} positive={netIncome >= 0} negative={netIncome < 0} loading={plLoading} icon={Wallet}
                 tooltip="Revenue minus expenses. Green = surplus (more in than out). Red = deficit (spending exceeded income)." />
-              <KPICard label="Budget Variance" value={budgetVariance} subtext={budgetVariance > 0 ? 'Over budget' : budgetVariance < 0 ? 'Under budget' : '—'} positive={budgetVariance <= 0} negative={budgetVariance > 0} loading={bvaLoading} icon={Target}
-                tooltip="Actual vs budgeted spending. Green = under budget. Red = over budget." />
+              <KPICard label="Budget Variance"    value={budgetVariance}  subtext={budgetVariance > 0 ? 'Over budget' : budgetVariance < 0 ? 'Under budget' : '—'} positive={budgetVariance <= 0} negative={budgetVariance > 0} loading={bvaLoading} icon={Target}
+                tooltip="Expense-only: actual vs budgeted spending. Green = under budget. Red = over budget. Giving/income is excluded." />
+              <KPICard label="Principal Payments" value={principalPaid}   subtext={periodLabel}           loading={principalLoading} icon={Landmark}
+                tooltip="Mortgage principal paid during the period. Reduces long-term debt but is not recorded as a P&L expense — shown here for a complete cash-out picture." />
             </div>
           </Section>
 

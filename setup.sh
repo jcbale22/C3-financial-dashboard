@@ -48,6 +48,10 @@ else
   echo "[3/4] Tunnel credentials found. ✓"
 fi
 
+# ── Preflight tunnel cert + credentials consistency ─────────────────────────
+chmod +x ./scripts/cloudflared-preflight.sh 2>/dev/null || true
+./scripts/cloudflared-preflight.sh
+
 # ── .env file ─────────────────────────────────────────────────────────────────
 if [ ! -f ".env" ]; then
   echo ""
@@ -71,11 +75,18 @@ echo "      Containers started. ✓"
 # ── Install cloudflared as a service ─────────────────────────────────────────
 echo ""
 echo "Installing cloudflared as a startup service..."
-sudo cloudflared service install
-echo "cloudflared service installed. ✓"
+if sudo cloudflared service install; then
+  echo "cloudflared service installed. ✓"
+else
+  echo "cloudflared service already installed. ✓"
+fi
 
 echo ""
 echo "=== Setup complete ==="
 echo "    Frontend: http://localhost:31337"
-echo "    Backend:  http://localhost:8000"
+echo "    Backend:  http://localhost:31338"
 echo "    Public:   https://finance.c3-church.com"
+echo ""
+echo "Optional hardening:"
+echo "    Git pre-push checks: ./scripts/install-git-hooks.sh"
+echo "    Daily tunnel healthcheck: ./scripts/install-healthcheck-launchd.sh"
