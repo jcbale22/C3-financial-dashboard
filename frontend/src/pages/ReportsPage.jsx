@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { GitCompareArrows, TrendingUp, TrendingDown, Wallet, Link2, Unlink2, RotateCcw } from 'lucide-react'
 import { api } from '../api/client'
@@ -7,7 +7,6 @@ import MonthRangePicker from '../components/MonthRangePicker'
 import ComparisonTable from '../components/ComparisonTable'
 import Section from '../components/Section'
 
-const AVAILABLE_YEARS = [2024, 2025]
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const pad = (n) => String(n).padStart(2, '0')
 const lastDay = (year, month) => new Date(year, month, 0).getDate()
@@ -26,7 +25,7 @@ function toDates(year, start, end) {
   }
 }
 
-function PeriodSelector({ label, year, start, end, onYearChange, onRangeChange }) {
+function PeriodSelector({ label, year, years, start, end, onYearChange, onRangeChange }) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <span className="text-xs font-bold uppercase tracking-wider text-skin-muted w-16 shrink-0">{label}</span>
@@ -35,7 +34,7 @@ function PeriodSelector({ label, year, start, end, onYearChange, onRangeChange }
         onChange={(e) => onYearChange(Number(e.target.value))}
         className="bg-skin-surface2 border border-skin-border text-skin-fg rounded px-2.5 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-skin-primary cursor-pointer"
       >
-        {AVAILABLE_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+        {years.map((y) => <option key={y} value={y}>{y}</option>)}
       </select>
       <MonthRangePicker year={year} start={start} end={end} onChange={onRangeChange} />
     </div>
@@ -78,9 +77,28 @@ function KPIComparison({ label, icon: Icon, valueA, valueB, labelA, labelB, isIn
 }
 
 export default function ReportsPage({ budgets }) {
-  const [periodA, setPeriodA] = useState({ year: 2024, start: 1, end: 12 })
-  const [periodB, setPeriodB] = useState({ year: 2025, start: 1, end: 12 })
+  const currentYear = new Date().getFullYear()
+  const availableYears = useMemo(() => {
+    const years = (budgets ?? [])
+      .filter((b) => b?.active !== false)
+      .map((b) => Number(String(b?.start_date ?? '').slice(0, 4)))
+      .filter((y) => Number.isInteger(y) && y >= 2000 && y <= 2100)
+    const uniqueSorted = [...new Set(years)].sort((a, b) => a - b)
+    return uniqueSorted.length ? uniqueSorted : [currentYear]
+  }, [budgets, currentYear])
+
+  const defaultYear = availableYears.includes(currentYear)
+    ? currentYear
+    : availableYears[availableYears.length - 1]
+
+  const [periodA, setPeriodA] = useState({ year: defaultYear, start: 1, end: 12 })
+  const [periodB, setPeriodB] = useState({ year: defaultYear, start: 1, end: 12 })
   const [syncMonths, setSyncMonths] = useState(true)
+
+  useEffect(() => {
+    setPeriodA((p) => ({ ...p, year: availableYears.includes(p.year) ? p.year : defaultYear }))
+    setPeriodB((p) => ({ ...p, year: availableYears.includes(p.year) ? p.year : defaultYear }))
+  }, [availableYears, defaultYear])
 
   // Reset month range when year changes for each period
   useEffect(() => { setPeriodA((p) => ({ ...p, start: 1, end: 12 })) }, [periodA.year])
@@ -135,6 +153,7 @@ export default function ReportsPage({ budgets }) {
           <PeriodSelector
             label="Period A"
             year={periodA.year}
+            years={availableYears}
             start={periodA.start}
             end={periodA.end}
             onYearChange={(y) => setPeriodA((p) => ({ ...p, year: y }))}
@@ -154,7 +173,11 @@ export default function ReportsPage({ budgets }) {
               {syncMonths ? 'Months synced' : 'Months independent'}
             </button>
             <button
-              onClick={() => { setPeriodA({ year: 2024, start: 1, end: 12 }); setPeriodB({ year: 2025, start: 1, end: 12 }); setSyncMonths(true) }}
+              onClick={() => {
+                setPeriodA({ year: defaultYear, start: 1, end: 12 })
+                setPeriodB({ year: defaultYear, start: 1, end: 12 })
+                setSyncMonths(true)
+              }}
               className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-skin-muted hover:text-skin-fg hover:bg-skin-surface2 transition-colors border border-transparent"
               title="Reset to defaults"
             >
@@ -165,6 +188,7 @@ export default function ReportsPage({ budgets }) {
           <PeriodSelector
             label="Period B"
             year={periodB.year}
+            years={availableYears}
             start={periodB.start}
             end={periodB.end}
             onYearChange={(y) => setPeriodB((p) => ({ ...p, year: y }))}
