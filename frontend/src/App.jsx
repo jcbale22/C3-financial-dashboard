@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   TrendingUp, TrendingDown, Wallet, Target, Landmark,
@@ -16,8 +16,6 @@ import BudgetVsActuals from './components/BudgetVsActuals'
 import MonthRangePicker from './components/MonthRangePicker'
 import ReportsPage from './pages/ReportsPage'
 import ReviewPage from './pages/ReviewPage'
-
-const AVAILABLE_YEARS = [2024, 2025]
 
 // Last calendar day of a given month (1-based)
 const lastDay = (year, month) => new Date(year, month, 0).getDate()
@@ -45,8 +43,9 @@ function NavItem({ icon: Icon, label, active, disabled, onClick }) {
 
 export default function App() {
   const { dark, toggle } = useTheme()
+  const currentYear = new Date().getFullYear()
   const [page, setPage]           = useState('overview')
-  const [year, setYear]           = useState(2025)
+  const [year, setYear]           = useState(currentYear)
   const [monthStart, setMonthStart] = useState(1)
   const [monthEnd,   setMonthEnd]   = useState(12)
 
@@ -73,6 +72,26 @@ export default function App() {
   }
 
   const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: api.getBudgets })
+
+  const availableYears = useMemo(() => {
+    const years = (budgets ?? [])
+      .filter((b) => b?.active !== false)
+      .map((b) => Number(String(b?.start_date ?? '').slice(0, 4)))
+      .filter((y) => Number.isInteger(y) && y >= 2000 && y <= 2100)
+    const uniqueSorted = [...new Set(years)].sort((a, b) => a - b)
+    return uniqueSorted.length ? uniqueSorted : [currentYear]
+  }, [budgets, currentYear])
+
+  const defaultYear = availableYears.includes(currentYear)
+    ? currentYear
+    : availableYears[availableYears.length - 1]
+
+  useEffect(() => {
+    if (!availableYears.includes(year)) {
+      setYear(defaultYear)
+    }
+  }, [availableYears, defaultYear, year])
+
   const activeBudget = budgets?.find((b) => b.start_date?.startsWith(String(year))) ?? budgets?.[0]
 
   const { data: pl, isLoading: plLoading } = useQuery({
@@ -124,6 +143,7 @@ export default function App() {
   const totalBudget    = expenseRows.reduce((s, r) => s + (r.budget ?? 0), 0)
   const totalActual    = expenseRows.reduce((s, r) => s + (r.actual ?? 0), 0)
   const budgetVariance = totalActual - totalBudget
+  const budgetVarianceLabel = budgetVariance > 0 ? 'Deficit' : budgetVariance < 0 ? 'Surplus' : 'Even'
 
   const principalPaid = principal?.principal_paid ?? 0
 
@@ -158,7 +178,7 @@ export default function App() {
                 onChange={(e) => setYear(Number(e.target.value))}
                 className="bg-skin-surface2 border border-skin-border text-skin-fg rounded-lg px-3 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-skin-primary cursor-pointer shadow-sm"
               >
-                {AVAILABLE_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
               <div className="relative group">
                 <button
@@ -236,8 +256,8 @@ export default function App() {
                 tooltip="Total spending across all cost centers for the period." />
               <KPICard label="Net Income"         value={netIncome}       subtext={netIncome >= 0 ? 'Surplus' : 'Deficit'} positive={netIncome >= 0} negative={netIncome < 0} loading={plLoading} icon={Wallet}
                 tooltip="Revenue minus expenses. Green = surplus (more in than out). Red = deficit (spending exceeded income)." />
-              <KPICard label="Budget Variance"    value={budgetVariance}  subtext={budgetVariance > 0 ? 'Over budget' : budgetVariance < 0 ? 'Under budget' : '—'} positive={budgetVariance <= 0} negative={budgetVariance > 0} loading={bvaLoading} icon={Target}
-                tooltip="Expense-only: actual vs budgeted spending. Green = under budget. Red = over budget. Giving/income is excluded." />
+              <KPICard label="Budget Variance"    value={Math.abs(budgetVariance)}  subtext={budgetVarianceLabel} positive={budgetVariance < 0} negative={budgetVariance > 0} loading={bvaLoading} icon={Target}
+                tooltip="Expense-only: actual vs budgeted spending. Green = surplus (under budget). Red = deficit (over budget). Giving/income is excluded." />
               {/* Only show principal payments if non-zero — it is a balance-sheet item
                   not in the P&L, so only relevant when mortgage was actually paid */}
               {(principalLoading || principalPaid > 0) && (
